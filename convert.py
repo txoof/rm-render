@@ -378,6 +378,21 @@ def process_document(doc, sync_dir, output_dir, folder_map):
 
 
 # ---------------------------------------------------------------------------
+# Worker function (module-level so multiprocessing can pickle it)
+# ---------------------------------------------------------------------------
+
+def _process_one(args_tuple):
+    import time, traceback
+    doc, sync_dir, output_dir, folder_map = args_tuple
+    t0 = time.time()
+    try:
+        out_path, status = process_document(doc, sync_dir, output_dir, folder_map)
+        return (doc, out_path, status, time.time() - t0, None)
+    except Exception as e:
+        return (doc, None, None, time.time() - t0, traceback.format_exc())
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -390,6 +405,8 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Show per-page timing")
     parser.add_argument("--max-pdf-mb", type=float, default=10.0,
                         help="Skip PDFs larger than this size in MB (default: 10)")
+    parser.add_argument("--workers", "-j", type=int, default=None,
+                        help="Parallel workers (default: half of CPU cores)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -427,11 +444,23 @@ def main():
             sys.exit(1)
 
     import time
-    n_total = len(sorted_docs := sorted(docs, key=lambda d: next(
-        (f["EntryName"] for f in d["Files"] if f["EntryName"].endswith(".metadata")), ""
-    )))
+    import os
+    import multiprocessing
+    import traceback
 
-    for i, doc in enumerate(sorted_docs, 1):
+    n_cpu = os.cpu_count() or 2
+    n_workers = args.workers if args.workers is not None else max(1, n_cpu // 2)
+    # Disable verbose per-page logging when running parallel (output would be garbled)
+    if n_workers > 1:
+        VERBOSE = False
+
+    sorted_docs = sorted(docs, key=lambda d: next(
+        (f["EntryName"] for f in d["Files"] if f["EntryName"].endswith(".metadata")), ""
+    ))
+    n_total = len(sorted_docs)
+
+    # Build display name for each doc upfront
+    def doc_display(doc):
         uuid = next(
             (f["EntryName"].replace(".metadata", "") for f in doc["Files"]
              if f["EntryName"].endswith(".metadata")), "unknown"
@@ -442,37 +471,40 @@ def main():
             name = meta.get("visibleName", uuid) if meta else uuid
             parent = meta.get("parent", "") if meta else ""
         else:
-            name = uuid
-            parent = ""
-
+            name, parent = uuid, ""
         folder_path = resolve_folder_path(folder_map, parent)
-        display_path = str(folder_path / name) if str(folder_path) else name
+        return str(folder_path / name) if str(folder_path) else name
 
-        print(f"[{i}/{n_total}] {display_path}", flush=True)
-        t0 = time.time()
-        try:
-            out_path, status = process_document(doc, sync_dir, output_dir, folder_map)
-        except Exception as e:
-            import traceback
-            elapsed = time.time() - t0
-            print(f"  ERR ({elapsed:.1f}s): {e}")
-            print(traceback.format_exc())
-            counts["error"] += 1
-            continue
-        elapsed = time.time() - t0
+    work = [(doc, sync_dir, output_dir, folder_map) for doc in sorted_docs]
 
-        if status in ("copied", "overlaid", "rendered (notebook)"):
-            print(f"  OK  [{status}] ({elapsed:.1f}s)  {out_path.relative_to(output_dir)}")
-            counts[status] += 1
-        elif status == "up to date, skipped":
-            print(f"  -- up to date ({elapsed:.1f}s)")
-            counts["up to date, skipped"] += 1
-        elif "skipped" in status or status == "folder, skipped":
-            print(f"  -- skipped: {status}")
-            counts["skipped"] += 1
-        else:
-            print(f"  ERR ({elapsed:.1f}s): {status}")
-            counts["error"] += 1
+    print(f"Workers:   {n_workers}")
+    print()
+
+    completed = 0
+    with multiprocessing.Pool(processes=n_workers) as pool:
+        for doc, out_path, status, elapsed, exc in pool.imap_unordered(_process_one, work):
+            completed += 1
+            display = doc_display(doc)
+            prefix = f"[{completed}/{n_total}] {display}"
+
+            if exc:
+                print(f"{prefix}")
+                print(f"  ERR ({elapsed:.1f}s): {exc}")
+                counts["error"] += 1
+            elif status in ("copied", "overlaid", "rendered (notebook)"):
+                print(f"{prefix}")
+                print(f"  OK  [{status}] ({elapsed:.1f}s)  {out_path.relative_to(output_dir)}")
+                counts[status] += 1
+            elif status == "up to date, skipped":
+                print(f"  -- up to date: {display}")
+                counts["up to date, skipped"] += 1
+            elif "skipped" in status or status == "folder, skipped":
+                print(f"  -- skipped: {display}: {status}")
+                counts["skipped"] += 1
+            else:
+                print(f"{prefix}")
+                print(f"  ERR ({elapsed:.1f}s): {status}")
+                counts["error"] += 1
 
     print()
     print(f"Copied:       {counts['copied']}")
