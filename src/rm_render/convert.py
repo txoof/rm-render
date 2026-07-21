@@ -549,10 +549,12 @@ def main():
                 print(f"  OK  [{status}] ({elapsed:.1f}s)  {out_path.relative_to(output_dir)}")
                 counts[status] += 1
             elif status == "up to date, skipped":
-                print(f"  -- up to date: {display}")
+                if VERBOSE:
+                    print(f"  -- up to date: {display}")
                 counts["up to date, skipped"] += 1
             elif "skipped" in status or status == "folder, skipped":
-                print(f"  -- skipped: {display}: {status}")
+                if VERBOSE:
+                    print(f"  -- skipped: {display}: {status}")
                 counts["skipped"] += 1
             else:
                 print(f"{prefix}")
