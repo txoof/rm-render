@@ -210,6 +210,39 @@ info "Running uv sync in $REPO_DIR"
 success "Dependencies installed"
 
 # ---------------------------------------------------------------------------
+# Install scripts to ~/.local/bin
+# ---------------------------------------------------------------------------
+
+section "Installing scripts"
+
+LOCAL_BIN="$HOME/.local/bin"
+mkdir -p "$LOCAL_BIN"
+
+# Install watch script, patching SCRIPT_DIR to point to the repo
+install_watch() {
+    cp "$REPO_DIR/watch.sh" "$LOCAL_BIN/rm-render-watch"
+    chmod +x "$LOCAL_BIN/rm-render-watch"
+    # Replace the dynamic SCRIPT_DIR detection with the actual repo path
+    sed -i \
+        's|SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE\[0\]}")" && pwd)"|SCRIPT_DIR="'"$REPO_DIR"'"|' \
+        "$LOCAL_BIN/rm-render-watch"
+    success "Installed rm-render-watch to $LOCAL_BIN"
+}
+
+if [ ! -f "$LOCAL_BIN/rm-render-watch" ]; then
+    install_watch
+else
+    # Check if source changed (compare ignoring the SCRIPT_DIR line)
+    SRC_HASH=$(grep -v 'SCRIPT_DIR' "$REPO_DIR/watch.sh" | md5sum)
+    DST_HASH=$(grep -v 'SCRIPT_DIR' "$LOCAL_BIN/rm-render-watch" | md5sum)
+    if [ "$SRC_HASH" != "$DST_HASH" ]; then
+        install_watch
+    else
+        info "rm-render-watch already up to date"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Install systemd service
 # ---------------------------------------------------------------------------
 
