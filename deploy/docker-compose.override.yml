@@ -10,4 +10,5 @@ services:
       - "80:80"
     volumes:
       - ./rendered:/usr/share/nginx/html:ro
+      - ./index.html:/usr/share/nginx/index.html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
