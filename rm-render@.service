@@ -6,7 +6,8 @@ Requires=docker.service
 [Service]
 Type=simple
 User=%i
-ExecStart=/bin/bash %h/src/rm-render/watch.sh %h/remotehomes/remarkable
+Environment="PATH=/home/%i/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/bin/bash /home/%i/src/rm-render/watch.sh /home/%i/remotehomes/remarkable
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

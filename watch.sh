@@ -32,10 +32,10 @@ if [ ! -d "$RENDERED_DIR" ]; then
     mkdir -p "$RENDERED_DIR"
 fi
 
-# Locate uv and rm-render -- prefer the invoking user's PATH
-UV=$(command -v uv 2>/dev/null || echo "")
+# Locate uv -- check PATH first, then common install locations
+UV=$(command -v uv 2>/dev/null ||      ls /home/*/.local/bin/uv /root/.local/bin/uv /usr/local/bin/uv 2>/dev/null | head -1 ||      echo "")
 if [ -z "$UV" ]; then
-    echo "ERROR: uv not found in PATH"
+    echo "ERROR: uv not found in PATH or common install locations (~/.local/bin/uv)"
     exit 1
 fi
 
