@@ -41,7 +41,9 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "rm-render watcher starting"
+VERSION=$(grep '^version' "$SCRIPT_DIR/pyproject.toml" 2>/dev/null | head -1 | sed 's/.*= *"//' | sed 's/"//' || echo "unknown")
+
+echo "rm-render $VERSION watcher starting"
 echo "  data root: $DATA_ROOT"
 echo "  users dir: $USERS_DIR"
 echo "  rendered:  $RENDERED_DIR"
