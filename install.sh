@@ -9,6 +9,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USER="${USER:-$(id -un)}"
 SYSTEMD_SERVICE="rm-render@${USER}.service"
+VERSION=$(grep '^version' "$REPO_DIR/pyproject.toml" | head -1 | sed 's/.*= *"//' | sed 's/"//')
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,6 +38,125 @@ section() {
     echo ""
     echo "── $* ──"
 }
+
+# ---------------------------------------------------------------------------
+# Uninstall
+# ---------------------------------------------------------------------------
+
+do_uninstall() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  rm-render uninstall (version $VERSION)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Stop and disable service
+    section "Removing systemd service"
+    if systemctl is-active "$SYSTEMD_SERVICE" >/dev/null 2>&1; then
+        info "Stopping $SYSTEMD_SERVICE"
+        sudo systemctl stop "$SYSTEMD_SERVICE"
+        success "Stopped"
+    fi
+    if systemctl is-enabled "$SYSTEMD_SERVICE" >/dev/null 2>&1; then
+        info "Disabling $SYSTEMD_SERVICE"
+        sudo systemctl disable "$SYSTEMD_SERVICE"
+        success "Disabled"
+    fi
+    SERVICE_FILE="/etc/systemd/system/rm-render@.service"
+    if [ -f "$SERVICE_FILE" ]; then
+        sudo rm "$SERVICE_FILE"
+        sudo systemctl daemon-reload
+        success "Removed $SERVICE_FILE"
+    else
+        info "Service file not found, skipping"
+    fi
+
+    # Remove installed script
+    section "Removing installed scripts"
+    LOCAL_BIN="$HOME/.local/bin"
+    if [ -f "$LOCAL_BIN/rm-render-watch" ]; then
+        rm "$LOCAL_BIN/rm-render-watch"
+        success "Removed $LOCAL_BIN/rm-render-watch"
+    else
+        info "rm-render-watch not found, skipping"
+    fi
+
+    # Find rmfakecloud directory
+    section "Removing deploy files"
+    RMFAKECLOUD_DIR=""
+    for candidate in "$HOME/remotehomes/remarkable" "$HOME/remarkable" "/opt/remarkable" "/srv/remarkable"; do
+        if [ -f "$candidate/docker-compose.yml" ] && [ -d "$candidate/data" ]; then
+            RMFAKECLOUD_DIR="$candidate"
+            break
+        fi
+    done
+    if [ -z "$RMFAKECLOUD_DIR" ]; then
+        warn "Could not auto-detect rmfakecloud directory -- skipping deploy file removal"
+    else
+        info "Found rmfakecloud at $RMFAKECLOUD_DIR"
+        for f in nginx.conf docker-compose.override.yml index.html; do
+            if [ -f "$RMFAKECLOUD_DIR/$f" ]; then
+                rm "$RMFAKECLOUD_DIR/$f"
+                success "Removed $f"
+            fi
+        done
+
+        # Stop nginx container
+        section "Stopping nginx"
+        cd "$RMFAKECLOUD_DIR"
+        if docker compose ps --status running --services 2>/dev/null | grep -q "rendered"; then
+            sudo docker compose stop rendered
+            sudo docker compose rm -f rendered
+            success "nginx container stopped and removed"
+        else
+            info "nginx container not running, skipping"
+        fi
+
+        # Optionally remove rendered directory
+        section "Rendered documents"
+        RENDERED_DIR="$RMFAKECLOUD_DIR/rendered"
+        if [ -d "$RENDERED_DIR" ]; then
+            echo ""
+            warn "The rendered/ directory contains your generated PDFs."
+            if ask "Remove $RENDERED_DIR and all rendered PDFs?"; then
+                rm -rf "$RENDERED_DIR"
+                success "Removed $RENDERED_DIR"
+            else
+                info "Keeping $RENDERED_DIR"
+            fi
+        fi
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  rm-render uninstalled"
+    echo "  The repo at $REPO_DIR was not removed."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    exit 0
+}
+
+# Parse flags
+UNINSTALL=false
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall) UNINSTALL=true ;;
+        --version)   echo "rm-render $VERSION"; exit 0 ;;
+        --help|-h)
+            echo "Usage: install.sh [--uninstall] [--version]"
+            echo "  (no flags)   Install or update rm-render"
+            echo "  --uninstall  Remove rm-render from this system"
+            echo "  --version    Print version and exit"
+            exit 0
+            ;;
+    esac
+done
+
+[ "$UNINSTALL" = true ] && do_uninstall
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  rm-render $VERSION"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ---------------------------------------------------------------------------
 # Check prerequisites
@@ -249,11 +369,13 @@ fi
 section "Installing systemd service"
 
 SERVICE_FILE="/etc/systemd/system/rm-render@.service"
+SERVICE_CHANGED=false
 
 if [ ! -f "$SERVICE_FILE" ] || ! diff -q "$REPO_DIR/rm-render@.service" "$SERVICE_FILE" >/dev/null 2>&1; then
     info "Installing $SERVICE_FILE"
     sudo cp "$REPO_DIR/rm-render@.service" "$SERVICE_FILE"
     sudo systemctl daemon-reload
+    SERVICE_CHANGED=true
     success "Service file installed"
 else
     info "Service file already up to date"
@@ -267,14 +389,17 @@ else
     success "Service already enabled"
 fi
 
-if systemctl is-active "$SYSTEMD_SERVICE" >/dev/null 2>&1; then
-    info "Restarting $SYSTEMD_SERVICE"
-    sudo systemctl restart "$SYSTEMD_SERVICE"
-else
+if ! systemctl is-active "$SYSTEMD_SERVICE" >/dev/null 2>&1; then
     info "Starting $SYSTEMD_SERVICE"
     sudo systemctl start "$SYSTEMD_SERVICE"
+    success "Service running"
+elif [ "$SERVICE_CHANGED" = true ]; then
+    info "Restarting $SYSTEMD_SERVICE (service file changed)"
+    sudo systemctl restart "$SYSTEMD_SERVICE"
+    success "Service restarted"
+else
+    success "Service already running and up to date"
 fi
-success "Service running"
 
 # ---------------------------------------------------------------------------
 # Initial render
@@ -302,7 +427,7 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  rm-render installed successfully"
+echo "  rm-render $VERSION installed successfully"
 echo ""
 echo "  Documents: http://$(hostname -I | awk '{print $1}')"
 echo "  Logs:      journalctl -u $SYSTEMD_SERVICE -f"

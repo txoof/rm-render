@@ -56,6 +56,24 @@ git pull
 `install.sh` is idempotent -- it only updates files that have changed and
 restarts services as needed.
 
+## Uninstalling
+
+```bash
+cd ~/src/rm-render
+./install.sh --uninstall
+```
+
+This will stop and remove the systemd service, remove the installed watch
+script from `~/.local/bin/`, remove the nginx deploy files, and stop the
+nginx container. You will be asked whether to delete the `rendered/`
+directory and its PDFs. The repo itself is not removed.
+
+## Version
+
+```bash
+./install.sh --version
+```
+
 ## Converter options
 
 ```
