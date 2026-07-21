@@ -1,0 +1,13 @@
+services:
+  rmfakecloud:
+    user: "1000:1000"
+
+  rendered:
+    image: nginx:alpine
+    container_name: rm-rendered
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./rendered:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
