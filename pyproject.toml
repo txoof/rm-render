@@ -1,0 +1,28 @@
+[project]
+name = "rm-render"
+version = "0.1.0"
+description = "Render reMarkable documents from rmfakecloud sync15 blob store to PDF"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "txoof" }]
+dependencies = [
+    "cairosvg>=2.9.0",
+    "pypdf>=6.14.2",
+    "rmc>=0.3.0",
+    "rmscene>=0.6.1",
+]
+
+[project.scripts]
+rm-render = "rm_render.convert:main"
+
+[project.urls]
+Homepage = "https://github.com/txoof/rm-render"
+Issues = "https://github.com/txoof/rm-render/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rm_render"]
