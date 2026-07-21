@@ -126,6 +126,59 @@ def make_blank_page(width_pt: float = PAGE_WIDTH_PT,
 
 
 # ---------------------------------------------------------------------------
+# Sync15 blob chain reader (replaces .tree)
+# ---------------------------------------------------------------------------
+
+def load_tree_from_blobs(sync_dir: Path) -> dict:
+    """Read document tree directly from sync15 blob chain.
+
+    Reads root -> root_blob -> per-doc blobs, bypassing the .tree cache file
+    which rmfakecloud only regenerates lazily.
+
+    Returns a dict with the same structure as .tree:
+        {"Docs": [{"Files": [{"Hash": str, "EntryName": str}]}]}
+    """
+    root_file = sync_dir / "root"
+    if not root_file.exists():
+        raise FileNotFoundError(f"sync/root not found at {root_file}")
+
+    root_hash = root_file.read_text().strip()
+    root_blob = sync_dir / root_hash
+    if not root_blob.exists():
+        raise FileNotFoundError(f"root blob {root_hash} not found")
+
+    lines = root_blob.read_text().splitlines()
+    # First line is schema version number, skip it
+    doc_lines = [l for l in lines[1:] if l.strip()]
+
+    docs = []
+    for line in doc_lines:
+        parts = line.split(":")
+        if len(parts) < 3:
+            continue
+        doc_hash = parts[0]
+        uuid = parts[2]
+
+        doc_blob = sync_dir / doc_hash
+        if not doc_blob.exists():
+            continue
+
+        file_lines = doc_blob.read_text().splitlines()
+        files = []
+        for fline in file_lines[1:]:  # skip schema version
+            fparts = fline.split(":")
+            if len(fparts) < 3:
+                continue
+            file_hash = fparts[0]
+            entry_name = fparts[2]
+            files.append({"Hash": file_hash, "EntryName": entry_name})
+
+        docs.append({"Files": files})
+
+    return {"Docs": docs}
+
+
+# ---------------------------------------------------------------------------
 # Freshness check
 # ---------------------------------------------------------------------------
 
@@ -399,7 +452,7 @@ def _process_one(args_tuple):
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Render reMarkable documents to PDF")
-    parser.add_argument("data_dir",   help="Path containing .tree and sync/ (read-only)")
+    parser.add_argument("data_dir",   help="Path containing sync/ directory (read-only)")
     parser.add_argument("output_dir", help="Where rendered PDFs are written")
     parser.add_argument("--only",     help="Process only this UUID (for testing)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show per-page timing")
@@ -413,7 +466,7 @@ def main():
     output_dir = Path(args.output_dir)
     sync_dir = data_dir / "sync"
 
-    for path, label in [(data_dir / ".tree", ".tree"), (sync_dir, "sync/")]:
+    for path, label in [(sync_dir, "sync/"), (sync_dir / "root", "sync/root")]:
         if not path.exists():
             print(f"ERROR: {label} not found at {path}")
             sys.exit(1)
@@ -424,7 +477,7 @@ def main():
     VERBOSE = args.verbose
     MAX_PDF_BYTES = int(args.max_pdf_mb * 1024 * 1024)
 
-    tree = json.load(open(data_dir / ".tree"))
+    tree = load_tree_from_blobs(sync_dir)
     docs = tree.get("Docs", [])
     folder_map = build_folder_map(docs, sync_dir)
 
