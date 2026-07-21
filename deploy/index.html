@@ -102,6 +102,18 @@
     text-overflow: ellipsis;
   }
 
+  .row-mtime {
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+    min-width: 96px;
+    text-align: right;
+  }
+
+  @media (max-width: 480px) {
+    .row-mtime { display: none; }
+  }
+
   .row-size {
     font-size: 12px;
     color: var(--muted);
@@ -205,8 +217,16 @@ function render(entries, path) {
     size.className = 'row-size';
     size.textContent = isDir ? '' : formatSize(entry.size);
 
+    const mtime = document.createElement('span');
+    mtime.className = 'row-mtime';
+    if (entry.mtime) {
+      const d = new Date(entry.mtime);
+      mtime.textContent = d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+    }
+
     a.appendChild(icon);
     a.appendChild(name);
+    a.appendChild(mtime);
     a.appendChild(size);
     list.appendChild(a);
   });
