@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rm-render</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:     #ffffff;
+    --bg-row: #f8f8f7;
+    --border: #e8e6e0;
+    --text:   #1a1a18;
+    --muted:  #888780;
+    --accent: #185fa5;
+    --radius: 8px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:     #1c1c1a;
+      --bg-row: #242422;
+      --border: #2e2e2b;
+      --text:   #e8e6e0;
+      --muted:  #5f5e5a;
+      --accent: #85b7eb;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.5;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 16px 48px;
+  }
+
+  header {
+    padding: 20px 0 16px;
+    border-bottom: 0.5px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .breadcrumb a {
+    color: var(--accent);
+    text-decoration: none;
+    padding: 2px 4px;
+    border-radius: 4px;
+  }
+
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb .sep { color: var(--muted); padding: 0 2px; }
+
+  .list { margin-top: 4px; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 8px;
+    border-bottom: 0.5px solid var(--border);
+    cursor: pointer;
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: var(--text);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .row:last-child { border-bottom: none; }
+  .row:hover, .row:focus { background: var(--bg-row); outline: none; }
+
+  .row i {
+    font-size: 20px;
+    flex-shrink: 0;
+    color: var(--muted);
+    width: 24px;
+    text-align: center;
+  }
+
+  .row i.folder { color: var(--accent); }
+
+  .row-name {
+    flex: 1;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .row-size {
+    font-size: 12px;
+    color: var(--muted);
+    flex-shrink: 0;
+    min-width: 48px;
+    text-align: right;
+  }
+
+  .empty { padding: 48px 8px; color: var(--muted); font-size: 14px; text-align: center; }
+  #error { padding: 24px 8px; color: var(--muted); font-size: 14px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <nav class="breadcrumb" id="breadcrumb" aria-label="folder path"></nav>
+</header>
+<div class="list" id="list" role="list"></div>
+<div id="error">Could not load directory listing.</div>
+
+<script>
+function formatSize(bytes) {
+  if (!bytes || bytes === 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getVirtualPath() {
+  const hash = window.location.hash.slice(1) || '/';
+  return hash.startsWith('/') ? hash : '/' + hash;
+}
+
+function buildBreadcrumb(path) {
+  const parts = path.split('/').filter(Boolean);
+  const bc = document.getElementById('breadcrumb');
+  bc.innerHTML = '';
+
+  const root = document.createElement('a');
+  root.href = '#/';
+  root.textContent = 'root';
+  bc.appendChild(root);
+
+  let accumulated = '/';
+  parts.forEach((part, i) => {
+    accumulated += part + '/';
+    const sep = document.createElement('span');
+    sep.className = 'sep';
+    sep.textContent = '/';
+    bc.appendChild(sep);
+
+    if (i === parts.length - 1) {
+      const span = document.createElement('span');
+      span.textContent = part;
+      span.style.color = 'var(--text)';
+      bc.appendChild(span);
+    } else {
+      const a = document.createElement('a');
+      a.href = '#' + accumulated;
+      a.textContent = part;
+      bc.appendChild(a);
+    }
+  });
+}
+
+function render(entries, path) {
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+
+  const folders = entries.filter(e => e.type === 'directory').sort((a, b) => a.name.localeCompare(b.name));
+  const files   = entries.filter(e => e.type === 'file').sort((a, b) => a.name.localeCompare(b.name));
+  const sorted  = [...folders, ...files];
+
+  if (sorted.length === 0) {
+    list.innerHTML = '<div class="empty">No documents here.</div>';
+    return;
+  }
+
+  sorted.forEach(entry => {
+    const isDir = entry.type === 'directory';
+    const a = document.createElement('a');
+    a.className = 'row';
+    a.setAttribute('role', 'listitem');
+
+    if (isDir) {
+      a.href = '#' + path + encodeURIComponent(entry.name) + '/';
+    } else {
+      a.href = path + encodeURIComponent(entry.name);
+      a.target = '_blank';
+      a.rel = 'noopener';
+    }
+
+    const icon = document.createElement('i');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.className = isDir ? 'ti ti-folder-filled folder' : 'ti ti-file-type-pdf';
+
+    const name = document.createElement('span');
+    name.className = 'row-name';
+    name.textContent = entry.name;
+
+    const size = document.createElement('span');
+    size.className = 'row-size';
+    size.textContent = isDir ? '' : formatSize(entry.size);
+
+    a.appendChild(icon);
+    a.appendChild(name);
+    a.appendChild(size);
+    list.appendChild(a);
+  });
+}
+
+async function load() {
+  const path = getVirtualPath();
+  buildBreadcrumb(path);
+  document.getElementById('error').style.display = 'none';
+  document.getElementById('list').innerHTML = '';
+
+  try {
+    const resp = await fetch('/_list' + path);
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    render(data, path);
+  } catch (e) {
+    document.getElementById('error').style.display = 'block';
+  }
+}
+
+window.addEventListener('hashchange', load);
+load();
+</script>
+</body>
+</html>
